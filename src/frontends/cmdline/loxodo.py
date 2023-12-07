@@ -33,8 +33,14 @@ except ImportError:
     pygtk = None
     gtk = None
 
+try:
+    import pyperclip
+except:
+    pyperclip = None
+
 from ...vault import Vault
 from ...config import config
+
 
 class InteractiveConsole(cmd.Cmd):
 
@@ -77,7 +83,7 @@ class InteractiveConsole(cmd.Cmd):
             raise RuntimeError("No password given")
         try:
             self.vault = Vault(self.vault_password, filename=self.vault_file_name)
-            self.prompt = "[" + os.path.basename(self.vault_file_name) + "]> "
+            self.prompt = "\033[92m[" + os.path.basename(self.vault_file_name) + "]\033[0m> "
         except Vault.BadPasswordError:
             print("Bad password.")
             raise
@@ -107,7 +113,7 @@ class InteractiveConsole(cmd.Cmd):
             return
 
         print("\nCommands:")
-        print("  ".join(("ls", "show", "quit", "add", "save", "import")))
+        print("  ".join(("ls", "ls_groups", "show", "shows", "clip", "clipmail", "clipuser", "quit", "add", "save", "import")))
         print()
 
     def do_quit(self, line):
@@ -222,7 +228,31 @@ class InteractiveConsole(cmd.Cmd):
             return
 
         for record in vault_records:
-            print(record.title + " [" + record.user + "]")
+            print(record.group + "." + record.title + " [" + record.user + "]")
+
+    def do_ls_groups(self, line):
+        """
+        Show contents of this Vault. If an argument is added a case insensitive
+        search of titles is done, entries can also be specified as regular expressions.
+        """
+
+        line = self._encode_line(line)
+
+        if not self.vault:
+            raise RuntimeError("No vault opened")
+
+        if line is not None:
+            groups = self.find_groups(line)
+        else:
+            groups = list({record.group for record in self.vault.records})
+            groups.sort()
+
+        if groups is None:
+            print("No matches found.")
+            return
+
+        for group in groups:
+            print(group)
 
     def do_show(self, line, echo=True, passwd=False):
         """
@@ -246,16 +276,24 @@ class InteractiveConsole(cmd.Cmd):
                 print("""
 %s.%s
 Username : %s
+Email    : %s
+URL      : %s
 Password : %s""" % (record.group,
                     record.title,
                     record.user,
-                    record.passwd))
+                    record.email,
+                    record.url,
+                    record.passwd if passwd else "<hidden - use 'shows'>"))
             else:
                 print("""
 %s.%s
-Username : %s""" % (record.group,
+Username : %s
+Email    : %s
+URL:     : %s""" % (record.group,
                     record.title,
-                    record.user))
+                    record.user,
+                    record.email,
+                    record.url))
 
             if record.notes.strip():
                 l = record.notes.strip().split("\r\n")
@@ -270,6 +308,105 @@ Username : %s""" % (record.group,
                 if cb is not None:
                   cb.set_text(record.passwd)
                   cb.store()
+
+    def do_shows(self, line):
+        self.do_show(line, passwd=True)
+
+    def do_clip(self, line):
+        """
+        Show contents of this Vault. If an argument is added a case insensitive
+        search of titles is done, entries can also be specified as regular expressions.
+        """
+        if pyperclip is None:
+            print("pyperclip package not found. Can't copy to clipboard.")
+            return
+
+        line = self._encode_line(line)
+
+        if not self.vault:
+            raise RuntimeError("No vault opened")
+
+        if line is not None:
+            vault_records = self.find_titles(line)
+        else:
+            vault_records = self.vault.records[:]
+            vault_records.sort(key=lambda e: six.text_type.lower(e))
+
+        if vault_records is None:
+            print("No matches found.")
+            return
+
+        if len(vault_records) != 1:
+            print("Found multiple entries. Can not copy to clipboard.")
+            return
+
+        record = vault_records[0]
+        pyperclip.copy(record.passwd)
+        print("Password for '" + record.group + "." + record.title + "' copied to clipboard!")
+
+    def do_clipmail(self, line):
+        """
+        Show contents of this Vault. If an argument is added a case insensitive
+        search of titles is done, entries can also be specified as regular expressions.
+        """
+        if pyperclip is None:
+            print("pyperclip package not found. Can't copy to clipboard.")
+            return
+
+        line = self._encode_line(line)
+
+        if not self.vault:
+            raise RuntimeError("No vault opened")
+
+        if line is not None:
+            vault_records = self.find_titles(line)
+        else:
+            vault_records = self.vault.records[:]
+            vault_records.sort(key=lambda e: six.text_type.lower(e))
+
+        if vault_records is None:
+            print("No matches found.")
+            return
+
+        if len(vault_records) != 1:
+            print("Found multiple entries. Can not copy to clipboard.")
+            return
+
+        record = vault_records[0]
+        pyperclip.copy(record.email)
+        print("Email for '" + record.group + "." + record.title + "' copied to clipboard!")
+
+    def do_clipuser(self, line):
+        """
+        Show contents of this Vault. If an argument is added a case insensitive
+        search of titles is done, entries can also be specified as regular expressions.
+        """
+        if pyperclip is None:
+            print("pyperclip package not found. Can't copy to clipboard.")
+            return
+
+        line = self._encode_line(line)
+
+        if not self.vault:
+            raise RuntimeError("No vault opened")
+
+        if line is not None:
+            vault_records = self.find_titles(line)
+        else:
+            vault_records = self.vault.records[:]
+            vault_records.sort(key=lambda e: six.text_type.lower(e))
+
+        if vault_records is None:
+            print("No matches found.")
+            return
+
+        if len(vault_records) != 1:
+            print("Found multiple entries. Can not copy to clipboard.")
+            return
+
+        record = vault_records[0]
+        pyperclip.copy(record.user)
+        print("User for '" + record.group + "." + record.title + "' copied to clipboard!")
 
     def complete_show(self, text, line, begidx, endidx):
 
@@ -302,6 +439,24 @@ Username : %s""" % (record.group,
                 matches.append(record)
             elif pat.match(record.group+"."+record.title+" ["+record.user+"]") is not None:
                 matches.append(record)
+
+        matches.sort(key=lambda record: record.group+"."+record.title+" ["+record.user+"]")
+
+        if len(matches) == 0:
+            return None
+        else:
+            return matches
+
+    def find_groups(self, regexp):
+        "Finds group names matching a regular expression. (Case insensitive)"
+        matches = []
+        pat = re.compile(regexp, re.IGNORECASE)
+        for record in self.vault.records:
+            if pat.match(record.group) is not None:
+                matches.append(record.group)
+
+        matches = list(set(matches))
+        matches.sort()
 
         if len(matches) == 0:
             return None

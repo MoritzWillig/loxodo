@@ -109,6 +109,7 @@ class Vault(object):
             self._passwd = u""
             self._last_mod = 0
             self._url = u""
+            self._email = u""
 
         @staticmethod
         def create():
@@ -135,6 +136,8 @@ class Vault(object):
                 self._last_mod = struct.unpack("<L", raw_field.raw_value)[0]
             if (raw_field.raw_type == 0x0d):
                 self._url = raw_field.raw_value.decode('utf_8', 'replace')
+            if (raw_field.raw_type == 0x14):
+                self._email = raw_field.raw_value.decode('utf_8', 'replace')
 
         def mark_modified(self):
             self.last_mod = int(time.time())
@@ -255,6 +258,21 @@ class Vault(object):
             self.raw_fields[raw_id].raw_len = len(self.raw_fields[raw_id].raw_value)
             self.mark_modified()
 
+        def _get_email(self):
+            return self._email
+
+        def _set_email(self, value):
+
+            assert type(value) == six.text_type
+
+            self._email = value
+            raw_id = 0x14
+            if (raw_id not in self.raw_fields):
+                self.raw_fields[raw_id] = Vault.Field(raw_id, len(value), value.encode('utf_8', 'replace'))
+            self.raw_fields[raw_id].raw_value = value.encode('utf_8', 'replace')
+            self.raw_fields[raw_id].raw_len = len(self.raw_fields[raw_id].raw_value)
+            self.mark_modified()
+
         def is_corresponding(self, record):
             """
             Return True if Records are the same, based on either UUIDs (if available) or title
@@ -286,6 +304,7 @@ class Vault(object):
         passwd = property(_get_passwd, _set_passwd)
         last_mod = property(_get_last_mod, _set_last_mod)
         url = property(_get_url, _set_url)
+        email = property(_get_email, _set_email)
 
         def __cmp__(self, other):
             """
